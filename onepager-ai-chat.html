@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ванпейджер проекта</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;600&display=swap" rel="stylesheet">
+<!--
+  ШАБЛОН ВАНПЕЙДЖЕРА v1
+  Для нового проекта меняется только JSON в блоке <script id="onepager-data">.
+  Разметку, стили и скрипт не трогать — так все ванпейджеры выглядят одинаково.
+
+  Поля:
+  project   — название проекта
+  status    — общий статус: "ok" (всё по плану) | "risk" (есть риски) | "critical" (нужна помощь)
+  summary   — что происходит: 1–2 предложения для человека без контекста
+  owner     — ответственный
+  updated   — дата обновления, ГГГГ-ММ-ДД
+  goal      — { "title": текущая цель или веха, "deadline": ГГГГ-ММ-ДД }
+  stages    — этапы к цели по порядку:
+              { "title", "status": "done" | "active" | "todo" | "blocked", "note" (необязательно) }
+  problems  — { "title", "comment", "due": ГГГГ-ММ-ДД, "owner" (необязательно) }; [] если проблем нет
+  artifacts — { "title", "type", "url" }; [] если пока ничего
+-->
+<style>
+  :root {
+    --ink: #18212B;
+    --muted: #5B6773;
+    --line: #DCE1E6;
+    --page: #ECEFF2;
+    --sheet: #FFFFFF;
+    --side: #F8F9FB;
+    --ok: #1E7F55;      --ok-tint: #E2F2EA;
+    --risk: #A86E06;    --risk-tint: #FBEFD6;
+    --crit: #BF3A2D;    --crit-tint: #FBE4E1;
+    --display: "Unbounded", "Golos Text", system-ui, sans-serif;
+    --text: "Golos Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--page); }
+  body {
+    margin: 0;
+    padding: 32px 20px 48px;
+    font: 16px/1.5 var(--text);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .sheet {
+    --s: var(--ok); --s-tint: var(--ok-tint);
+    max-width: 1080px;
+    margin: 0 auto;
+    background: var(--sheet);
+    border-radius: 16px;
+    overflow: hidden;
+    border-top: 8px solid var(--s);
+  }
+  .sheet[data-status="risk"]     { --s: var(--risk); --s-tint: var(--risk-tint); }
+  .sheet[data-status="critical"] { --s: var(--crit); --s-tint: var(--crit-tint); }
+
+  /* Шапка: название, статус, суть */
+  .head { padding: 36px 44px 28px; border-bottom: 1px solid var(--line); }
+  .head-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+  .name {
+    margin: 0;
+    font: 600 34px/1.15 var(--display);
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+  .status {
+    flex: none;
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 11px 18px 11px 14px;
+    border-radius: 999px;
+    background: var(--s-tint);
+    color: var(--s);
+    font-size: 18px; font-weight: 700; line-height: 1;
+  }
+  .status-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--s); }
+  .summary { margin: 18px 0 0; max-width: 62ch; font-size: 20px; line-height: 1.5; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 28px; margin-top: 18px; font-size: 14px; color: var(--muted); }
+  .meta b { color: var(--ink); font-weight: 600; }
+  .stale { color: var(--risk); font-weight: 600; }
+
+  /* Тело: маршрут к цели слева, проблемы и артефакты справа */
+  .body { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+  .goal, .side { padding: 32px 44px 40px; }
+  .side { background: var(--side); border-left: 1px solid var(--line); }
+  .sec-title { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); }
+  .count {
+    display: inline-block; min-width: 22px; margin-left: 6px; padding: 1px 7px;
+    border-radius: 999px; background: var(--crit-tint); color: var(--crit);
+    font-size: 13px; text-align: center;
+  }
+  .count:empty { display: none; }
+
+  .goal-title { margin: 0; font-size: 24px; font-weight: 700; line-height: 1.3; text-wrap: balance; }
+  .goal-meta { display: flex; flex-wrap: wrap; gap: 4px 24px; margin-top: 10px; font-size: 15px; color: var(--muted); }
+  .goal-meta strong { color: var(--ink); font-weight: 600; }
+  .goal-meta .over, .goal-meta .over strong { color: var(--crit); }
+
+  /* Маршрут: этапы как остановки */
+  .route { list-style: none; margin: 28px 0 0; padding: 0; }
+  .stop {
+    position: relative;
+    display: grid; grid-template-columns: 28px 1fr; column-gap: 14px;
+    padding-bottom: 18px;
+  }
+  .stop::before {
+    content: ""; position: absolute; left: 13px; top: 22px; bottom: -2px; width: 2px;
+    background: repeating-linear-gradient(to bottom, #B9C2CB 0 5px, transparent 5px 10px);
+  }
+  .stop.done::before { background: var(--ink); }
+  .stop:last-child { padding-bottom: 0; }
+  .stop:last-child::before { display: none; }
+
+  .mark {
+    position: relative; z-index: 1;
+    width: 28px; height: 28px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--sheet); border: 2px solid #B9C2CB; color: var(--muted);
+  }
+  .done .mark    { background: var(--ink); border-color: var(--ink); }
+  .blocked .mark { background: var(--crit); border-color: var(--crit); }
+  .active .mark  { border: 3px solid var(--ink); }
+  .active .mark::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--ink); }
+  .finish .mark  { border-radius: 8px; border-color: var(--ink); color: var(--ink); }
+  .finish.reached .mark { background: var(--ok); border-color: var(--ok); color: #fff; }
+
+  .stop-title { padding-top: 3px; font-size: 16px; line-height: 1.4; }
+  .done .stop-title { color: var(--muted); }
+  .active .stop-title, .blocked .stop-title, .finish .stop-title { font-weight: 700; }
+  .tag {
+    display: inline-block; margin-left: 8px; padding: 2px 9px;
+    border-radius: 999px; font-size: 12.5px; font-weight: 600; vertical-align: 1px;
+  }
+  .active .tag  { background: var(--ink); color: #fff; }
+  .blocked .tag { background: var(--crit-tint); color: var(--crit); }
+  .stop-note { margin-top: 2px; font-size: 14px; color: var(--muted); }
+
+  /* Проблемы */
+  .problems { margin-bottom: 36px; }
+  .problem { padding: 14px 0; border-top: 1px solid var(--line); }
+  .problem:first-child { padding-top: 4px; border-top: 0; }
+  .p-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+  .p-title { font-size: 16.5px; font-weight: 700; line-height: 1.35; }
+  .p-due { flex: none; font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+  .p-due.over { color: var(--crit); }
+  .p-comment { margin: 4px 0 0; font-size: 15px; color: var(--muted); }
+  .p-owner { margin-top: 4px; font-size: 13.5px; color: var(--muted); }
+  .empty { margin: 0; color: var(--muted); }
+
+  /* Артефакты */
+  .art {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+    padding: 10px 0; border-top: 1px solid var(--line);
+    color: var(--ink); text-decoration: none;
+  }
+  .art:first-child { border-top: 0; padding-top: 4px; }
+  a.art:hover .art-title { text-decoration: underline; text-underline-offset: 3px; }
+  .art-title { font-weight: 500; }
+  .art-type { flex: none; font-size: 13.5px; color: var(--muted); }
+  a:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 4px; }
+
+  @media (max-width: 760px) {
+    body { padding: 0; }
+    .sheet { border-radius: 0; }
+    .head, .goal, .side { padding-left: 20px; padding-right: 20px; }
+    .head { padding-top: 24px; }
+    .head-top { flex-direction: column; gap: 14px; }
+    .name { font-size: 26px; }
+    .status { font-size: 16px; padding: 9px 14px 9px 12px; }
+    .summary { font-size: 18px; }
+    .body { grid-template-columns: 1fr; }
+    .side { border-left: 0; border-top: 1px solid var(--line); }
+  }
+  @media print {
+    html { background: #fff; }
+    body { padding: 0; }
+    .sheet { max-width: none; border-radius: 0; }
+  }
+</style>
+</head>
+<body>
+
+<script id="onepager-data" type="application/json">
+{
+  "project": "Собственный ИИ-чат и квалификатор",
+  "status": "risk",
+  "summary": "Собственный ИИ-чат установлен на сайтах Сети 4: агент ведёт тестовые диалоги, собирает данные и создаёт лиды в БЭК. До запуска на всех сайтах нужно согласовать сценарии с заказчиком, адаптировать виджет под разные сети и проверить работу на реальных обращениях.",
+  "owner": "Тимошкин Константин",
+  "updated": "2026-11-13",
+  "goal": {
+    "title": "Заменить JivoSite собственным ИИ-чатом на всех сайтах компании с созданием и маршрутизацией лидов в БЭК",
+    "deadline": null
+  },
+  "stages": [
+    {
+      "title": "Разработать ИИ-квалификатора и создание лидов в БЭК",
+      "status": "done",
+      "note": "Функции проверены на тестовых сценариях; реальные диалоги пока отсутствуют"
+    },
+    {
+      "title": "Развернуть собственный чат на сайтах Сети 4",
+      "status": "done",
+      "note": "Виджет установлен, включая roadbus.ru"
+    },
+    {
+      "title": "Адаптировать решение к сайтам разных сетей",
+      "status": "active",
+      "note": "Работа передана ИИ-агенту; оценка сроков ожидается до 16 ноября"
+    },
+    {
+      "title": "Повторно согласовать сценарии и ответы с заказчиком",
+      "status": "todo",
+      "note": "Повторный отсмотр запланирован на 16–22 ноября; окончательного одобрения нет"
+    },
+    {
+      "title": "Настроить определение источника и маршрутизацию лидов в БЭК",
+      "status": "todo",
+      "note": "Текущая степень готовности не подтверждена"
+    },
+    {
+      "title": "Настроить контроль качества ИИ-агента",
+      "status": "todo",
+      "note": "Конверсия, точность ответов, полнота данных, сбои; пока оценка только вручную"
+    },
+    {
+      "title": "Провести проверку на реальных обращениях и масштабировать на все сайты",
+      "status": "todo",
+      "note": "Реальных диалогов на развёрнутых сайтах пока нет"
+    },
+    {
+      "title": "Подготовить документацию и передать систему в эксплуатацию",
+      "status": "todo",
+      "note": "Документация ещё не создана"
+    }
+  ],
+  "problems": [
+    {
+      "title": "Не определены сроки масштабирования",
+      "comment": "Сайты разных сетей отличаются. Адаптация передана ИИ-агенту, подтверждённого результата пока нет. До 16 ноября ожидается техническая оценка развёртывания.",
+      "due": "2026-11-16"
+    },
+    {
+      "title": "Не получено окончательное согласование заказчика",
+      "comment": "Первый вариант показан, первичные вопросы решены. Нужно повторно проверить стартовые сценарии и частые вопросы на неделе 16–22 ноября.",
+      "owner": "Тимошкин Константин"
+    },
+    {
+      "title": "Нет проверки на реальном потоке обращений",
+      "comment": "На сайтах Сети 4 пока нет реальных диалогов; пройдены только тестовые сценарии. Проверка на реальных обращениях необходима до завершения проекта."
+    }
+  ],
+  "artifacts": [
+    {
+      "title": "Чат на сайте roadbus.ru",
+      "type": "Сайт",
+      "url": "https://roadbus.ru/"
+    },
+    {
+      "title": "Пример лида в БЭК №845267",
+      "type": "БЭК",
+      "url": "https://erp.holdingbp.ru/EditLead/845267"
+    }
+  ]
+}
+</script>
+
+<main class="sheet" id="app">
+  <header class="head">
+    <div class="head-top">
+      <h1 class="name"></h1>
+      <div class="status"><span class="status-dot" aria-hidden="true"></span><span class="status-text"></span></div>
+    </div>
+    <p class="summary"></p>
+    <div class="meta"></div>
+  </header>
+
+  <div class="body">
+    <section class="goal" aria-labelledby="goal-label">
+      <h2 class="sec-title" id="goal-label">Промежуточная цель</h2>
+      <p class="goal-title"></p>
+      <div class="goal-meta"></div>
+      <ol class="route"></ol>
+    </section>
+
+    <aside class="side">
+      <section class="problems" aria-labelledby="problems-label">
+        <h2 class="sec-title" id="problems-label">Проблемы<span class="count"></span></h2>
+        <div class="problem-list"></div>
+      </section>
+      <section class="artifacts" aria-labelledby="artifacts-label">
+        <h2 class="sec-title" id="artifacts-label">Готовые артефакты</h2>
+        <div class="art-list"></div>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<script>
+(function () {
+  var data = JSON.parse(document.getElementById('onepager-data').textContent);
+  var $ = function (s) { return document.querySelector(s); };
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  var DAY = 86400000;
+  var now = new Date();
+  var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  function parse(s) {
+    if (!s) return null;
+    var p = String(s).split('-').map(Number);
+    return new Date(p[0], p[1] - 1, p[2]);
+  }
+  function fmt(d) {
+    var o = { day: 'numeric', month: 'long' };
+    if (d.getFullYear() !== today.getFullYear()) o.year = 'numeric';
+    return d.toLocaleDateString('ru-RU', o);
+  }
+  function diff(d) { return Math.round((d - today) / DAY); }
+  function plural(n, f) {
+    n = Math.abs(n) % 100;
+    var n1 = n % 10;
+    if (n > 10 && n < 20) return f[2];
+    if (n1 > 1 && n1 < 5) return f[1];
+    if (n1 === 1) return f[0];
+    return f[2];
+  }
+  function days(n) { return Math.abs(n) + ' ' + plural(n, ['день', 'дня', 'дней']); }
+
+  var ICONS = {
+    done: '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    blocked: '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 3.5v5.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/><circle cx="8" cy="12.3" r="1.4" fill="#fff"/></svg>',
+    finish: '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 14V2.5M4 3h7.5L9.7 5.75 11.5 8.5H4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>'
+  };
+  var STATUS = { ok: 'Всё по плану', risk: 'Есть риски', critical: 'Нужна помощь' };
+  var STAGE_LABEL = { done: 'готово', active: 'в работе', todo: 'не начато', blocked: 'заблокировано' };
+  var TAG = { active: 'сейчас', blocked: 'заблокировано' };
+
+  // Шапка
+  var st = STATUS[data.status] ? data.status : 'ok';
+  $('#app').setAttribute('data-status', st);
+  $('.status-text').textContent = STATUS[st];
+  $('.name').textContent = data.project || '';
+  $('.summary').textContent = data.summary || '';
+  document.title = (data.project || 'Проект') + ' — ванпейджер';
+
+  var meta = $('.meta');
+  if (data.owner) {
+    var o = el('span');
+    o.append('Ответственный: ', el('b', null, data.owner));
+    meta.append(o);
+  }
+  var upd = parse(data.updated);
+  if (upd) {
+    var u = el('span');
+    u.append('Обновлено ', el('b', null, fmt(upd)));
+    var ago = -diff(upd);
+    if (ago >= 7) u.append(' ', el('span', 'stale', '(' + days(ago) + ' назад)'));
+    meta.append(u);
+  }
+
+  // Цель
+  var goal = data.goal || {};
+  $('.goal-title').textContent = goal.title || '';
+  var gm = $('.goal-meta');
+  var dl = parse(goal.deadline);
+  if (dl) {
+    var n = diff(dl);
+    var d = el('span');
+    d.append('Срок ', el('strong', null, fmt(dl)));
+    if (n > 0) d.append(', осталось ' + days(n));
+    else if (n === 0) d.append(', это сегодня');
+    else { d.append(', просрочено на ' + days(n)); d.className = 'over'; }
+    gm.append(d);
+  }
+  var stages = data.stages || [];
+  var done = stages.filter(function (x) { return x.status === 'done'; }).length;
+  if (stages.length) {
+    var c = el('span');
+    c.append('Готово ', el('strong', null, done + ' из ' + stages.length), ' ' + plural(stages.length, ['этапа', 'этапов', 'этапов']));
+    gm.append(c);
+  }
+
+  // Маршрут
+  var route = $('.route');
+  stages.forEach(function (x) {
+    var s = STAGE_LABEL[x.status] ? x.status : 'todo';
+    var li = el('li', 'stop ' + s);
+    var m = el('span', 'mark');
+    m.setAttribute('role', 'img');
+    m.setAttribute('aria-label', STAGE_LABEL[s]);
+    if (ICONS[s]) m.innerHTML = ICONS[s];
+    var b = el('div');
+    var t = el('div', 'stop-title', x.title);
+    if (TAG[s]) t.append(el('span', 'tag', TAG[s]));
+    b.append(t);
+    if (x.note) b.append(el('div', 'stop-note', x.note));
+    li.append(m, b);
+    route.append(li);
+  });
+  if (stages.length) {
+    var reached = done === stages.length;
+    var fin = el('li', 'stop finish' + (reached ? ' reached' : ''));
+    var fm = el('span', 'mark');
+    fm.innerHTML = ICONS.finish;
+    var fb = el('div');
+    fb.append(el('div', 'stop-title', reached ? 'Промежуточная цель достигнута' : (dl ? 'Промежуточная цель к ' + fmt(dl) : 'Промежуточная цель')));
+    fin.append(fm, fb);
+    route.append(fin);
+  }
+
+  // Проблемы
+  var probs = data.problems || [];
+  $('.count').textContent = probs.length ? String(probs.length) : '';
+  var pl = $('.problem-list');
+  if (!probs.length) pl.append(el('p', 'empty', 'Проблем нет.'));
+  probs.forEach(function (p) {
+    var box = el('div', 'problem');
+    var h = el('div', 'p-head');
+    h.append(el('div', 'p-title', p.title));
+    var due = parse(p.due);
+    if (due) {
+      var n = diff(due);
+      h.append(el('div', 'p-due' + (n < 0 ? ' over' : ''), n < 0 ? 'просрочено на ' + days(n) : 'до ' + fmt(due)));
+    }
+    box.append(h);
+    if (p.comment) box.append(el('p', 'p-comment', p.comment));
+    if (p.owner) box.append(el('div', 'p-owner', 'Отвечает: ' + p.owner));
+    pl.append(box);
+  });
+
+  // Артефакты
+  var arts = data.artifacts || [];
+  var al = $('.art-list');
+  if (!arts.length) al.append(el('p', 'empty', 'Пока ничего.'));
+  arts.forEach(function (a) {
+    var link = el(a.url ? 'a' : 'div', 'art');
+    if (a.url) { link.href = a.url; link.target = '_blank'; link.rel = 'noopener'; }
+    link.append(el('span', 'art-title', a.title));
+    if (a.type) link.append(el('span', 'art-type', a.type));
+    al.append(link);
+  });
+})();
+</script>
+</body>
+</html>
